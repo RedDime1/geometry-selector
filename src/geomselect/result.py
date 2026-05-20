@@ -53,6 +53,17 @@ class GeometrySelectorConfig:
     close_ratio: float = 1.05
     close_abs: float = 1e-3
     fail_fast: bool = False
+    do_plus: bool = False
+    plus_pair_sample: int | None = None
+    plus_maxiter_hyper: int = 200
+    plus_maxiter_sphere: int = 300
+    plus_gtol: float = 1e-6
+    rollback_plus: bool = True
+    flat_signal_threshold: float = 0.15
+    weak_signal_threshold: float = 0.35
+    euclidean_flat_close_ratio: float = 1.10
+    euclidean_flat_close_abs: float = 1e-3
+    curvature_quantile: float = 0.90
 
 
 @dataclass(slots=True, eq=False)

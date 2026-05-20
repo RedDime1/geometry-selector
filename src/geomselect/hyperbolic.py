@@ -6,6 +6,7 @@ from scipy.sparse.linalg import eigsh
 from geomselect.metrics import stress1, stress1_from_vectors
 from geomselect.preprocessing import check_distance_matrix, normalize_distance_matrix
 from geomselect.result import GeometryCandidate
+from geomselect.plus import hydra_plus_refine
 
 
 def poincare_distance_matrix(
@@ -577,6 +578,17 @@ def hydra_fixed_kappa_eigsh(
 
     return Y, X, lam_top, np.asarray(lam_bottom, dtype=float), A
 
+def _safe_float_for_plus(x: float) -> float:
+    try:
+        x = float(x)
+    except Exception:
+        return np.inf
+
+    if not np.isfinite(x):
+        return np.inf
+
+    return x
+
 
 def fit_hyperbolic(
     D: np.ndarray,
@@ -591,6 +603,12 @@ def fit_hyperbolic(
     n_refine: int = 3,
     refine_num: int = 25,
     eig_tol: float = 1e-10,
+    do_plus: bool = False,
+    plus_pairs: tuple[np.ndarray, np.ndarray] | None = None,
+    plus_maxiter: int = 200,
+    plus_gtol: float = 1e-6,
+    rollback_plus: bool = True,
+    random_state: int | None = None,
 ) -> GeometryCandidate:
     D = check_distance_matrix(D)
 
@@ -610,26 +628,66 @@ def fit_hyperbolic(
     kappa_scaled = float(selection["kappa_scaled"])
     kappa = float(selection["kappa"])
 
-    D_scaled = D / scale_s
+    D_scaled = D / max(scale_s, 1e-15)
 
-    Y, X, top_eigenvalue, bottom_eigenvalues = hydra_fixed_kappa(
+    Y0, X, top_eigenvalue, bottom_eigenvalues = hydra_fixed_kappa(
         D_scaled,
         d=d,
         kappa_scaled=kappa_scaled,
         eig_tol=eig_tol,
     )
 
-    stress = hyperbolic_stress(
+    stress_before = hyperbolic_stress(
         D,
-        Y,
+        Y0,
         kappa=kappa,
         pairs=pairs,
     )
 
+    Y_final = Y0
+    stress_after = np.nan
+    used_plus = False
+    plus_info = None
+
+    if do_plus:
+        try:
+            Y1, plus_info = hydra_plus_refine(
+                D_scaled,
+                Y0,
+                kappa=kappa_scaled,
+                pairs=plus_pairs,
+                maxiter=plus_maxiter,
+                gtol=plus_gtol,
+                seed=random_state,
+                verbose=False,
+            )
+
+            stress_after = hyperbolic_stress(
+                D,
+                Y1,
+                kappa=kappa,
+                pairs=pairs,
+            )
+
+            if (not rollback_plus) or (
+                _safe_float_for_plus(stress_after)
+                <= _safe_float_for_plus(stress_before)
+            ):
+                Y_final = Y1
+                used_plus = True
+
+        except Exception as exc:
+            plus_info = {
+                "success": False,
+                "message": str(exc),
+            }
+
+    stress_final = stress_after if used_plus else stress_before
+
     return GeometryCandidate(
         geometry="hyperbolic",
-        stress=float(stress),
-        embedding=Y,
+        stress=float(stress_final),
+        embedding=Y_final,
         parameter_name="kappa",
         parameter_value=kappa,
         metadata={
@@ -641,5 +699,9 @@ def fit_hyperbolic(
             "bottom_eigenvalues": np.asarray(bottom_eigenvalues, dtype=float),
             "lorentz_embedding": X,
             "selection": selection,
+            "stress_before_plus": float(stress_before),
+            "stress_after_plus": float(stress_after) if np.isfinite(stress_after) else np.nan,
+            "used_plus": bool(used_plus),
+            "plus_info": plus_info,
         },
     )

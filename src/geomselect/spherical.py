@@ -6,6 +6,7 @@ from scipy.sparse.linalg import eigsh
 from geomselect.metrics import stress1, stress1_from_vectors
 from geomselect.preprocessing import check_distance_matrix, normalize_distance_matrix
 from geomselect.result import GeometryCandidate
+from geomselect.plus import sphere_plus_refine
 
 
 def spherical_distance_matrix(
@@ -592,6 +593,17 @@ def spherical_fixed_R_eigsh(
 
     return U, X, A, vals
 
+def _safe_float_for_plus(x: float) -> float:
+    try:
+        x = float(x)
+    except Exception:
+        return np.inf
+
+    if not np.isfinite(x):
+        return np.inf
+
+    return x
+
 
 def fit_spherical(
     D: np.ndarray,
@@ -608,6 +620,12 @@ def fit_spherical(
     n_refine: int = 3,
     refine_num: int = 21,
     eig_tol: float = 1e-8,
+    do_plus: bool = False,
+    plus_pairs: tuple[np.ndarray, np.ndarray] | None = None,
+    plus_maxiter: int = 300,
+    plus_gtol: float = 1e-6,
+    rollback_plus: bool = True,
+    random_state: int | None = None,
 ) -> GeometryCandidate:
     D = check_distance_matrix(D)
 
@@ -632,24 +650,64 @@ def fit_spherical(
 
     D_scaled = D / max(scale_s, 1e-15)
 
-    U, X_scaled, A, evals = spherical_fixed_R_eigsh(
+    U0, X_scaled, A, evals = spherical_fixed_R_eigsh(
         D_scaled,
         d=d,
         R=R_scaled,
         tol=eig_tol,
     )
 
-    stress = spherical_stress(
+    stress_before = spherical_stress(
         D,
-        U,
+        U0,
         R=R,
         pairs=pairs,
     )
 
+    U_final = U0
+    stress_after = np.nan
+    used_plus = False
+    plus_info = None
+
+    if do_plus:
+        try:
+            U1, plus_info = sphere_plus_refine(
+                D_scaled,
+                U0,
+                R=R_scaled,
+                pairs=plus_pairs,
+                seed=random_state,
+                maxiter=plus_maxiter,
+                gtol=plus_gtol,
+                verbose=False,
+            )
+
+            stress_after = spherical_stress(
+                D,
+                U1,
+                R=R,
+                pairs=pairs,
+            )
+
+            if (not rollback_plus) or (
+                _safe_float_for_plus(stress_after)
+                <= _safe_float_for_plus(stress_before)
+            ):
+                U_final = U1
+                used_plus = True
+
+        except Exception as exc:
+            plus_info = {
+                "success": False,
+                "message": str(exc),
+            }
+
+    stress_final = stress_after if used_plus else stress_before
+
     return GeometryCandidate(
         geometry="spherical",
-        stress=float(stress),
-        embedding=R * U,
+        stress=float(stress_final),
+        embedding=R * U_final,
         parameter_name="R",
         parameter_value=float(R),
         metadata={
@@ -659,10 +717,15 @@ def fit_spherical(
             "scale_s": float(scale_s),
             "selection_score": float(selection["score"]),
             "lambda_min": float(selection["lambda_min"]),
-            "unit_embedding": U,
+            "unit_embedding": U_final,
+            "initial_unit_embedding": U0,
             "scaled_embedding": X_scaled,
             "A": A,
             "eigenvalues": np.asarray(evals, dtype=float),
             "selection": selection,
+            "stress_before_plus": float(stress_before),
+            "stress_after_plus": float(stress_after) if np.isfinite(stress_after) else np.nan,
+            "used_plus": bool(used_plus),
+            "plus_info": plus_info,
         },
     )

@@ -56,22 +56,119 @@ def _safe_stress(candidate: GeometryCandidate) -> float:
     return stress
 
 
-def _make_recommendation(
-    candidates: list[GeometryCandidate],
+def _safe_float(x: object, default: float = np.nan) -> float:
+    try:
+        value = float(x)
+    except Exception:
+        return default
+
+    if not np.isfinite(value):
+        return default
+
+    return value
+
+
+def _scaled_distance_quantile(
+    D: np.ndarray,
+    scale_s: float,
+    q: float,
+) -> float:
+    D_scaled = np.asarray(D, dtype=float) / max(float(scale_s), 1e-15)
+    values = D_scaled[D_scaled > 0]
+
+    if values.size == 0:
+        return 0.0
+
+    return float(np.quantile(values, q))
+
+
+def _curvature_regime(
+    signal: float,
     *,
+    flat_signal_threshold: float,
+    weak_signal_threshold: float,
+) -> str:
+    signal = _safe_float(signal, default=0.0)
+
+    if signal < flat_signal_threshold:
+        return "near_flat"
+
+    if signal < weak_signal_threshold:
+        return "weak_curvature"
+
+    return "curved"
+
+
+def _attach_curvature_diagnostics(
+    candidate: GeometryCandidate,
+    D: np.ndarray,
+    config: GeometrySelectorConfig,
+) -> None:
+    metadata = candidate.metadata
+
+    if candidate.geometry == "euclidean":
+        metadata["signed_curvature"] = 0.0
+        metadata["curvature_signal"] = 0.0
+        metadata["curvature_regime"] = "flat"
+        return
+
+    scale_s = _safe_float(metadata.get("scale_s", 1.0), default=1.0)
+    qD = _scaled_distance_quantile(
+        D,
+        scale_s=scale_s,
+        q=config.curvature_quantile,
+    )
+
+    if candidate.geometry == "hyperbolic":
+        kappa = _safe_float(candidate.parameter_value, default=np.nan)
+        kappa_scaled = _safe_float(metadata.get("kappa_scaled", np.nan), default=np.nan)
+
+        signal = np.sqrt(max(kappa_scaled, 0.0)) * qD
+
+        metadata["signed_curvature"] = -kappa
+        metadata["curvature_signal"] = float(signal)
+        metadata["curvature_regime"] = _curvature_regime(
+            signal,
+            flat_signal_threshold=config.flat_signal_threshold,
+            weak_signal_threshold=config.weak_signal_threshold,
+        )
+        return
+
+    if candidate.geometry == "spherical":
+        R = _safe_float(candidate.parameter_value, default=np.nan)
+        R_scaled = _safe_float(metadata.get("R_scaled", np.nan), default=np.nan)
+
+        signal = qD / max(R_scaled, 1e-15)
+
+        metadata["signed_curvature"] = 1.0 / max(R * R, 1e-15)
+        metadata["curvature_signal"] = float(signal)
+        metadata["curvature_regime"] = _curvature_regime(
+            signal,
+            flat_signal_threshold=config.flat_signal_threshold,
+            weak_signal_threshold=config.weak_signal_threshold,
+        )
+        return
+
+    metadata["signed_curvature"] = np.nan
+    metadata["curvature_signal"] = np.nan
+    metadata["curvature_regime"] = "unknown"
+
+
+def _make_recommendation(
+    *,
+    selected: GeometryCandidate,
+    best_by_stress: GeometryCandidate,
+    second_by_stress: GeometryCandidate | None,
+    euclidean_candidate: GeometryCandidate | None,
     close_ratio: float,
     close_abs: float,
-) -> str:
-    if len(candidates) == 1:
-        return f"Selected geometry: {candidates[0].geometry}."
+    used_near_flat_override: bool,
+) -> tuple[str, str]:
+    if second_by_stress is None:
+        return f"Selected geometry: {selected.geometry}.", "high"
 
-    ordered = sorted(candidates, key=_safe_stress)
-
-    best = ordered[0]
-    second = ordered[1]
-
-    best_stress = _safe_stress(best)
-    second_stress = _safe_stress(second)
+    best_stress = _safe_stress(best_by_stress)
+    second_stress = _safe_stress(second_by_stress)
 
     absolute_gap = second_stress - best_stress
     relative_gap = second_stress / max(best_stress, 1e-15)
@@ -81,13 +178,44 @@ def _make_recommendation(
     else:
         is_close = relative_gap <= close_ratio or absolute_gap <= close_abs
 
-    if is_close:
+    best_regime = str(best_by_stress.metadata.get("curvature_regime", "unknown"))
+
+    if used_near_flat_override:
         return (
-            f"Selected geometry: {best.geometry}. "
-            f"The second candidate is close, so the result should be treated cautiously."
+            f"Best geometry by stress is {best_by_stress.geometry}, but its curvature is close to zero "
+            f"and the Euclidean stress is close. Selected geometry: euclidean. "
+            f"The result should be interpreted as an almost flat case.",
+            "low_or_medium",
         )
 
-    return f"Selected geometry: {best.geometry}. The stress gap is noticeable."
+    if best_by_stress.geometry in {"hyperbolic", "spherical"} and best_regime == "near_flat":
+        if euclidean_candidate is not None:
+            euclidean_stress = _safe_stress(euclidean_candidate)
+            if euclidean_stress > best_stress:
+                return (
+                    f"Selected geometry: {best_by_stress.geometry}. "
+                    f"However, the selected curvature is close to zero, so the curvature sign is unreliable. "
+                    f"The Euclidean model is worse by stress, but the case should be treated as weakly curved or ambiguous.",
+                    "low_or_medium",
+                )
+
+        return (
+            f"Selected geometry: {best_by_stress.geometry}. "
+            f"However, the selected curvature is close to zero, so the result should be treated cautiously.",
+            "low_or_medium",
+        )
+
+    if is_close:
+        return (
+            f"Selected geometry: {best_by_stress.geometry}. "
+            f"The second candidate is close, so the result should be treated cautiously.",
+            "low_or_medium",
+        )
+
+    return (
+        f"Selected geometry: {best_by_stress.geometry}. The stress gap is noticeable.",
+        "high",
+    )
 
 
 def _fit_candidate(
@@ -95,6 +223,7 @@ def _fit_candidate(
     D: np.ndarray,
     config: GeometrySelectorConfig,
     pairs: tuple[np.ndarray, np.ndarray] | None,
+    plus_pairs: tuple[np.ndarray, np.ndarray] | None,
 ) -> GeometryCandidate:
     if geometry == "euclidean":
         return fit_euclidean(
@@ -116,6 +245,12 @@ def _fit_candidate(
             n_refine=config.n_refine,
             refine_num=config.refine_num,
             eig_tol=config.eig_tol,
+            do_plus=config.do_plus,
+            plus_pairs=plus_pairs,
+            plus_maxiter=config.plus_maxiter_hyper,
+            plus_gtol=config.plus_gtol,
+            rollback_plus=config.rollback_plus,
+            random_state=config.random_state,
         )
 
     if geometry == "spherical":
@@ -133,19 +268,83 @@ def _fit_candidate(
             n_refine=config.n_refine,
             refine_num=config.refine_num,
             eig_tol=config.eig_tol,
+            do_plus=config.do_plus,
+            plus_pairs=plus_pairs,
+            plus_maxiter=config.plus_maxiter_sphere,
+            plus_gtol=config.plus_gtol,
+            rollback_plus=config.rollback_plus,
+            random_state=config.random_state,
         )
 
     raise NotImplementedError(f"Geometry {geometry!r} is not implemented yet.")
 
 
 def _make_candidate_table(candidates: list[GeometryCandidate]) -> pd.DataFrame:
-    table = pd.DataFrame(
-        [candidate.as_dict() for candidate in candidates]
-    )
+    rows = []
 
+    extra_keys = [
+        "stress_before_plus",
+        "stress_after_plus",
+        "used_plus",
+        "selection_score",
+        "kappa_scaled",
+        "R_scaled",
+        "scale_s",
+        "signed_curvature",
+        "curvature_signal",
+        "curvature_regime",
+    ]
+
+    for candidate in candidates:
+        row = candidate.as_dict()
+        metadata = candidate.metadata or {}
+
+        for key in extra_keys:
+            if key in metadata:
+                row[key] = metadata[key]
+
+        rows.append(row)
+
+    table = pd.DataFrame(rows)
     table.insert(0, "rank", np.arange(1, len(table) + 1))
 
     return table
+
+
+def _select_with_near_flat_rule(
+    candidates: list[GeometryCandidate],
+    config: GeometrySelectorConfig,
+) -> tuple[GeometryCandidate, GeometryCandidate, GeometryCandidate | None, bool]:
+    ordered = sorted(candidates, key=_safe_stress)
+    best = ordered[0]
+    second = ordered[1] if len(ordered) > 1 else None
+
+    euclidean_candidate = next(
+        (candidate for candidate in ordered if candidate.geometry == "euclidean"),
+        None,
+    )
+
+    used_near_flat_override = False
+    selected = best
+
+    if (
+        best.geometry in {"hyperbolic", "spherical"}
+        and str(best.metadata.get("curvature_regime")) == "near_flat"
+        and euclidean_candidate is not None
+    ):
+        best_stress = _safe_stress(best)
+        euclidean_stress = _safe_stress(euclidean_candidate)
+
+        euclidean_is_close = (
+            euclidean_stress <= best_stress * config.euclidean_flat_close_ratio
+            or euclidean_stress - best_stress <= config.euclidean_flat_close_abs
+        )
+
+        if euclidean_is_close:
+            selected = euclidean_candidate
+            used_near_flat_override = True
+
+    return selected, best, second, used_near_flat_override
 
 
 def select_geometry(
@@ -170,6 +369,17 @@ def select_geometry(
     close_ratio: float = 1.05,
     close_abs: float = 1e-3,
     fail_fast: bool = False,
+    do_plus: bool = False,
+    plus_pair_sample: int | None = None,
+    plus_maxiter_hyper: int = 200,
+    plus_maxiter_sphere: int = 300,
+    plus_gtol: float = 1e-6,
+    rollback_plus: bool = True,
+    flat_signal_threshold: float = 0.15,
+    weak_signal_threshold: float = 0.35,
+    euclidean_flat_close_ratio: float = 1.10,
+    euclidean_flat_close_abs: float = 1e-3,
+    curvature_quantile: float = 0.90,
 ) -> SelectionResult:
     D = check_distance_matrix(D)
     n = D.shape[0]
@@ -196,12 +406,34 @@ def select_geometry(
         close_ratio=close_ratio,
         close_abs=close_abs,
         fail_fast=fail_fast,
+        do_plus=do_plus,
+        plus_pair_sample=plus_pair_sample,
+        plus_maxiter_hyper=plus_maxiter_hyper,
+        plus_maxiter_sphere=plus_maxiter_sphere,
+        plus_gtol=plus_gtol,
+        rollback_plus=rollback_plus,
+        flat_signal_threshold=flat_signal_threshold,
+        weak_signal_threshold=weak_signal_threshold,
+        euclidean_flat_close_ratio=euclidean_flat_close_ratio,
+        euclidean_flat_close_abs=euclidean_flat_close_abs,
+        curvature_quantile=curvature_quantile,
     )
 
     pairs = _make_pairs(
         n=n,
         pair_sample=pair_sample,
         random_state=random_state,
+    )
+
+    if random_state is None:
+        plus_random_state = None
+    else:
+        plus_random_state = random_state + 1000
+
+    plus_pairs = _make_pairs(
+        n=n,
+        pair_sample=plus_pair_sample,
+        random_state=plus_random_state,
     )
 
     candidates: list[GeometryCandidate] = []
@@ -214,7 +446,9 @@ def select_geometry(
                 D,
                 config,
                 pairs,
+                plus_pairs,
             )
+            _attach_curvature_diagnostics(candidate, D, config)
             candidates.append(candidate)
         except Exception as exc:
             candidate_errors[geometry] = str(exc)
@@ -230,31 +464,45 @@ def select_geometry(
 
     candidates = sorted(candidates, key=_safe_stress)
 
-    for candidate in candidates:
-        candidate.selected = False
+    selected, best_by_stress, second_by_stress, used_near_flat_override = (
+        _select_with_near_flat_rule(candidates, config)
+    )
 
-    selected = candidates[0]
-    selected.selected = True
+    for candidate in candidates:
+        candidate.selected = candidate is selected
 
     table = _make_candidate_table(candidates)
 
-    recommendation = _make_recommendation(
-        candidates,
-        close_ratio=close_ratio,
-        close_abs=close_abs,
+    euclidean_candidate = next(
+        (candidate for candidate in candidates if candidate.geometry == "euclidean"),
+        None,
     )
 
-    if len(candidates) >= 2:
-        second = candidates[1]
-        second_geometry = second.geometry
-        second_stress = _safe_stress(second)
-        absolute_margin = second_stress - _safe_stress(selected)
-        relative_margin = second_stress / max(_safe_stress(selected), 1e-15)
+    recommendation, confidence = _make_recommendation(
+        selected=selected,
+        best_by_stress=best_by_stress,
+        second_by_stress=second_by_stress,
+        euclidean_candidate=euclidean_candidate,
+        close_ratio=close_ratio,
+        close_abs=close_abs,
+        used_near_flat_override=used_near_flat_override,
+    )
+
+    if second_by_stress is not None:
+        second_geometry = second_by_stress.geometry
+        second_stress = _safe_stress(second_by_stress)
+        absolute_margin = second_stress - _safe_stress(best_by_stress)
+        relative_margin = second_stress / max(_safe_stress(best_by_stress), 1e-15)
     else:
         second_geometry = None
         second_stress = np.nan
         absolute_margin = np.nan
         relative_margin = np.nan
+
+    if euclidean_candidate is None:
+        euclidean_stress = np.nan
+    else:
+        euclidean_stress = _safe_stress(euclidean_candidate)
 
     return SelectionResult(
         selected_geometry=selected.geometry,
@@ -267,11 +515,25 @@ def select_geometry(
             "n": int(n),
             "used_pair_sample": pair_sample is not None,
             "pair_sample": pair_sample,
+            "used_plus_pair_sample": plus_pair_sample is not None,
+            "plus_pair_sample": plus_pair_sample,
             "candidate_errors": candidate_errors,
-            "best_stress": _safe_stress(selected),
+            "selected_geometry": selected.geometry,
+            "best_geometry_by_stress": best_by_stress.geometry,
+            "best_stress": _safe_stress(best_by_stress),
+            "selected_stress": _safe_stress(selected),
             "second_geometry": second_geometry,
             "second_stress": second_stress,
             "absolute_margin": absolute_margin,
             "relative_margin": relative_margin,
+            "euclidean_stress": euclidean_stress,
+            "selected_curvature_signal": selected.metadata.get("curvature_signal", np.nan),
+            "selected_curvature_regime": selected.metadata.get("curvature_regime", "unknown"),
+            "best_curvature_signal": best_by_stress.metadata.get("curvature_signal", np.nan),
+            "best_curvature_regime": best_by_stress.metadata.get("curvature_regime", "unknown"),
+            "used_near_flat_override": bool(used_near_flat_override),
+            "confidence": confidence,
+            "do_plus": bool(do_plus),
+            "rollback_plus": bool(rollback_plus),
         },
     )

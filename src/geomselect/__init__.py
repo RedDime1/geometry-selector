@@ -10,6 +10,7 @@ from geomselect.spherical import (
     spherical_distance_matrix,
     spherical_stress,
 )
+from geomselect.plus import hydra_plus_refine, sphere_plus_refine
 
 __all__ = [
     "check_distance_matrix",
@@ -28,4 +29,6 @@ __all__ = [
     "select_R_by_spectral_multisection",
     "fit_spherical",
     "select_geometry",
+    "hydra_plus_refine",
+    "sphere_plus_refine"
 ]
