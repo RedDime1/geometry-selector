@@ -11,6 +11,7 @@ from geomselect.spherical import (
     spherical_stress,
 )
 from geomselect.plus import hydra_plus_refine, sphere_plus_refine
+from geomselect.visualization import plot_embedding
 
 __all__ = [
     "check_distance_matrix",
@@ -30,5 +31,6 @@ __all__ = [
     "fit_spherical",
     "select_geometry",
     "hydra_plus_refine",
-    "sphere_plus_refine"
+    "sphere_plus_refine",
+    "plot_embedding"
 ]

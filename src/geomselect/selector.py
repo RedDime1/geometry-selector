@@ -380,6 +380,13 @@ def select_geometry(
     euclidean_flat_close_ratio: float = 1.10,
     euclidean_flat_close_abs: float = 1e-3,
     curvature_quantile: float = 0.90,
+    plot: bool = False,
+    plot_geometry: str | None = None,
+    plot_hyperbolic_model: str = "poincare",
+    plot_labels=None,
+    plot_show: bool = True,
+    plot_marker_size: int = 5,
+    plot_show_surface: bool = True,
 ) -> SelectionResult:
     D = check_distance_matrix(D)
     n = D.shape[0]
@@ -504,7 +511,7 @@ def select_geometry(
     else:
         euclidean_stress = _safe_stress(euclidean_candidate)
 
-    return SelectionResult(
+    result = SelectionResult(
         selected_geometry=selected.geometry,
         selected=selected,
         candidates=tuple(candidates),
@@ -537,3 +544,20 @@ def select_geometry(
             "rollback_plus": bool(rollback_plus),
         },
     )
+    if plot:
+        if d != 2:
+            result.metadata["plot_warning"] = "Plotting is available only for d=2."
+        else:
+            from geomselect.visualization import plot_embedding
+
+            fig = plot_embedding(
+                result,
+                geometry=plot_geometry,
+                labels=plot_labels,
+                marker_size=plot_marker_size,
+                show_surface=plot_show_surface,
+                show=plot_show,
+                hyperbolic_model=plot_hyperbolic_model,
+            )
+            result.metadata["figure"] = fig
+    return result

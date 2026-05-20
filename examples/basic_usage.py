@@ -54,6 +54,8 @@ def run_case(name: str, D: np.ndarray, expected: str):
         n_refine=3,
         refine_num=25,
         random_state=42,
+        plot=True,
+        plot_hyperbolic_model="hyperboloid"
     )
 
     print()

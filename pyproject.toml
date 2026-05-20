@@ -20,9 +20,8 @@ dev = [
     "ruff",
 ]
 
-demo = [
-    "streamlit",
-    "plotly",
+viz = [
+    "plotly>=5.0",
 ]
 
 [tool.pytest.ini_options]
