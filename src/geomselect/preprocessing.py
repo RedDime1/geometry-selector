@@ -4,7 +4,6 @@ import numpy as np
 
 
 def check_distance_matrix(D: np.ndarray, *, atol: float = 1e-8) -> np.ndarray:
-    """Validate and return a distance matrix as float ndarray."""
     D = np.asarray(D, dtype=float)
 
     if D.ndim != 2:
@@ -37,15 +36,6 @@ def normalize_distance_matrix(
     *,
     eps: float = 1e-12,
 ) -> tuple[np.ndarray, float]:
-    """
-    Normalize a distance matrix and return (normalized_matrix, scale).
-
-    Supported methods:
-    - None or "none": no normalization
-    - "median": divide by median of positive distances
-    - "mean": divide by mean of positive distances
-    - "max": divide by maximum distance
-    """
     D = check_distance_matrix(D)
 
     if method is None or method == "none":
@@ -71,7 +61,6 @@ def normalize_distance_matrix(
 
 
 def all_pairs(n: int) -> tuple[np.ndarray, np.ndarray]:
-    """Return upper-triangular index pairs i < j."""
     if n < 2:
         raise ValueError("At least two objects are required.")
     return np.triu_indices(n, k=1)
@@ -83,7 +72,6 @@ def sample_pairs(
     *,
     random_state: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return either all pairs or a random subset of upper-triangular pairs."""
     rows, cols = all_pairs(n)
     total = len(rows)
 

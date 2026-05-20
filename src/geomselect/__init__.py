@@ -8,6 +8,15 @@ from geomselect.preprocessing import (
 )
 from geomselect.result import GeometryCandidate, GeometrySelectorConfig, SelectionResult
 from geomselect.selector import select_geometry
+from geomselect.hyperbolic import (
+    fit_hyperbolic,
+    hydra_fixed_kappa,
+    hydra_fixed_kappa_eigsh,
+    hyperbolic_stress,
+    poincare_distance_matrix,
+    select_kappa_by_signature,
+    select_kappa_by_signature_multisection,
+)
 
 __all__ = [
     "GeometryCandidate",
@@ -24,4 +33,11 @@ __all__ = [
     "select_geometry",
     "stress1",
     "stress1_from_vectors",
+    "fit_hyperbolic",
+    "hydra_fixed_kappa",
+    "hydra_fixed_kappa_eigsh",
+    "hyperbolic_stress",
+    "poincare_distance_matrix",
+    "select_kappa_by_signature",
+    "select_kappa_by_signature_multisection"
 ]

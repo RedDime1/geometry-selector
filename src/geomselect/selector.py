@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from geomselect.euclidean import fit_euclidean
+from geomselect.hyperbolic import fit_hyperbolic
 from geomselect.preprocessing import check_distance_matrix, sample_pairs
 from geomselect.result import GeometryCandidate, GeometrySelectorConfig, SelectionResult
 
@@ -72,6 +73,14 @@ def select_geometry(
         if geometry == "euclidean":
             candidates.append(
                 fit_euclidean(
+                    D,
+                    d=d,
+                    pairs=pairs,
+                )
+            )
+        elif geometry == "hyperbolic":
+            candidates.append(
+                fit_hyperbolic(
                     D,
                     d=d,
                     pairs=pairs,

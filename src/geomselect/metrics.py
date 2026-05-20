@@ -6,7 +6,6 @@ from geomselect.preprocessing import check_distance_matrix
 
 
 def pairwise_euclidean(X: np.ndarray) -> np.ndarray:
-    """Compute full Euclidean distance matrix for rows of X."""
     X = np.asarray(X, dtype=float)
 
     if X.ndim != 2:
@@ -27,9 +26,6 @@ def stress1(
     *,
     eps: float = 1e-12,
 ) -> float:
-    """
-    Normalized stress-1 between two distance matrices.
-    """
     D_true = check_distance_matrix(D_true)
     D_pred = check_distance_matrix(D_pred)
 
@@ -53,7 +49,6 @@ def stress1_from_vectors(
     *,
     eps: float = 1e-12,
 ) -> float:
-    """Stress-1 for already selected distance vectors."""
     d_true = np.asarray(d_true, dtype=float)
     d_pred = np.asarray(d_pred, dtype=float)
 
