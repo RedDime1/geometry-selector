@@ -38,6 +38,21 @@ class GeometrySelectorConfig:
     geometries: tuple[str, ...] = ("euclidean", "hyperbolic", "spherical")
     pair_sample: int | None = None
     random_state: int | None = None
+    norm_method: str | None = "median"
+    hyper_grid_num: int = 31
+    sphere_grid_num: int = 31
+    hyper_span_decades: float = 3.0
+    sphere_span_decades: float = 3.0
+    center: float = 1.0
+    hyper_t_max: float = 20.0
+    sphere_r_max_factor: float = 6.0
+    sphere_r_max_abs: float | None = None
+    n_refine: int = 3
+    refine_num: int = 25
+    eig_tol: float = 1e-10
+    close_ratio: float = 1.05
+    close_abs: float = 1e-3
+    fail_fast: bool = False
 
 
 @dataclass(slots=True, eq=False)
