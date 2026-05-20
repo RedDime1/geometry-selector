@@ -35,7 +35,7 @@ class GeometryCandidate:
 @dataclass(slots=True, eq=False)
 class GeometrySelectorConfig:
     d: int = 2
-    geometries: tuple[str, ...] = ("euclidean",)
+    geometries: tuple[str, ...] = ("euclidean", "hyperbolic", "spherical")
     pair_sample: int | None = None
     random_state: int | None = None
 

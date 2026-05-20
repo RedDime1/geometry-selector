@@ -1,43 +1,31 @@
 from geomselect.euclidean import classical_mds, euclidean_stress, fit_euclidean
-from geomselect.metrics import pairwise_euclidean, stress1, stress1_from_vectors
-from geomselect.preprocessing import (
-    all_pairs,
-    check_distance_matrix,
-    normalize_distance_matrix,
-    sample_pairs,
-)
-from geomselect.result import GeometryCandidate, GeometrySelectorConfig, SelectionResult
+from geomselect.hyperbolic import fit_hyperbolic, hyperbolic_stress, poincare_distance_matrix
+from geomselect.metrics import pairwise_euclidean, stress1
+from geomselect.preprocessing import check_distance_matrix, normalize_distance_matrix
 from geomselect.selector import select_geometry
-from geomselect.hyperbolic import (
-    fit_hyperbolic,
-    hydra_fixed_kappa,
-    hydra_fixed_kappa_eigsh,
-    hyperbolic_stress,
-    poincare_distance_matrix,
-    select_kappa_by_signature,
-    select_kappa_by_signature_multisection,
+from geomselect.spherical import (
+    fit_spherical,
+    select_R_by_spectral,
+    select_R_by_spectral_multisection,
+    spherical_distance_matrix,
+    spherical_stress,
 )
 
 __all__ = [
-    "GeometryCandidate",
-    "GeometrySelectorConfig",
-    "SelectionResult",
-    "all_pairs",
     "check_distance_matrix",
+    "normalize_distance_matrix",
+    "pairwise_euclidean",
+    "stress1",
     "classical_mds",
     "euclidean_stress",
     "fit_euclidean",
-    "normalize_distance_matrix",
-    "pairwise_euclidean",
-    "sample_pairs",
-    "select_geometry",
-    "stress1",
-    "stress1_from_vectors",
-    "fit_hyperbolic",
-    "hydra_fixed_kappa",
-    "hydra_fixed_kappa_eigsh",
-    "hyperbolic_stress",
     "poincare_distance_matrix",
-    "select_kappa_by_signature",
-    "select_kappa_by_signature_multisection"
+    "hyperbolic_stress",
+    "fit_hyperbolic",
+    "spherical_distance_matrix",
+    "spherical_stress",
+    "select_R_by_spectral",
+    "select_R_by_spectral_multisection",
+    "fit_spherical",
+    "select_geometry",
 ]

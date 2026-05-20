@@ -7,6 +7,7 @@ from geomselect.euclidean import fit_euclidean
 from geomselect.hyperbolic import fit_hyperbolic
 from geomselect.preprocessing import check_distance_matrix, sample_pairs
 from geomselect.result import GeometryCandidate, GeometrySelectorConfig, SelectionResult
+from geomselect.spherical import fit_spherical
 
 
 def _make_pairs(
@@ -24,7 +25,12 @@ def _make_pairs(
     )
 
 
-def _make_recommendation(selected: GeometryCandidate, candidates: list[GeometryCandidate]) -> str:
+def _make_recommendation(
+    selected: GeometryCandidate,
+    candidates: list[GeometryCandidate],
+    *,
+    close_ratio: float = 1.05,
+) -> str:
     if len(candidates) == 1:
         return f"Selected geometry: {selected.geometry}."
 
@@ -34,7 +40,7 @@ def _make_recommendation(selected: GeometryCandidate, candidates: list[GeometryC
 
     ratio = second.stress / max(best.stress, 1e-15)
 
-    if ratio <= 1.05:
+    if ratio <= close_ratio:
         return (
             f"Selected geometry: {best.geometry}. "
             f"The second candidate is close, so the result should be treated cautiously."
@@ -43,11 +49,41 @@ def _make_recommendation(selected: GeometryCandidate, candidates: list[GeometryC
     return f"Selected geometry: {best.geometry}. The stress gap is noticeable."
 
 
+def _fit_candidate(
+    geometry: str,
+    D: np.ndarray,
+    d: int,
+    pairs: tuple[np.ndarray, np.ndarray] | None,
+) -> GeometryCandidate:
+    if geometry == "euclidean":
+        return fit_euclidean(
+            D,
+            d=d,
+            pairs=pairs,
+        )
+
+    if geometry == "hyperbolic":
+        return fit_hyperbolic(
+            D,
+            d=d,
+            pairs=pairs,
+        )
+
+    if geometry == "spherical":
+        return fit_spherical(
+            D,
+            d=d,
+            pairs=pairs,
+        )
+
+    raise NotImplementedError(f"Geometry {geometry!r} is not implemented yet.")
+
+
 def select_geometry(
     D: np.ndarray,
     d: int = 2,
     *,
-    geometries: tuple[str, ...] = ("euclidean",),
+    geometries: tuple[str, ...] = ("euclidean", "hyperbolic", "spherical"),
     pair_sample: int | None = None,
     random_state: int | None = None,
 ) -> SelectionResult:
@@ -70,28 +106,20 @@ def select_geometry(
     candidates: list[GeometryCandidate] = []
 
     for geometry in geometries:
-        if geometry == "euclidean":
-            candidates.append(
-                fit_euclidean(
-                    D,
-                    d=d,
-                    pairs=pairs,
-                )
+        candidates.append(
+            _fit_candidate(
+                geometry,
+                D,
+                d,
+                pairs,
             )
-        elif geometry == "hyperbolic":
-            candidates.append(
-                fit_hyperbolic(
-                    D,
-                    d=d,
-                    pairs=pairs,
-                )
-            )
-        else:
-            raise NotImplementedError(
-                f"Geometry {geometry!r} is not implemented yet."
-            )
+        )
 
     candidates = sorted(candidates, key=lambda item: item.stress)
+
+    for candidate in candidates:
+        candidate.selected = False
+
     selected = candidates[0]
     selected.selected = True
 
