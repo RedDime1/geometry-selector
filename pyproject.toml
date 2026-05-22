@@ -29,3 +29,13 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.coverage.run]
+source = ["src/geomselect"]
+omit = [
+    "src/geomselect/visualization.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

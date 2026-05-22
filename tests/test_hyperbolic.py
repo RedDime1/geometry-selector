@@ -4,6 +4,7 @@ from geomselect.hyperbolic import (
     fit_hyperbolic,
     hyperbolic_stress,
     poincare_distance_matrix,
+    hydra_fixed_kappa_eigsh
 )
 
 
@@ -65,3 +66,70 @@ def test_fit_hyperbolic_on_clean_hyperbolic_data():
     assert np.isfinite(candidate.stress)
     assert candidate.stress < 0.1
     assert candidate.embedding.shape == (60, 2)
+
+
+def test_hyperbolic_stress_with_pairs():
+    rng = np.random.default_rng(12)
+
+    n = 50
+    d = 2
+    kappa = 2.5
+
+    directions = rng.normal(size=(n, d))
+    directions /= np.maximum(np.linalg.norm(directions, axis=1, keepdims=True), 1e-15)
+
+    radii = rng.uniform(0.05, 0.70, size=(n, 1))
+    Y = directions * radii
+
+    D = poincare_distance_matrix(Y, kappa=kappa)
+
+    rows = np.array([0, 1, 2, 3, 4, 10, 11])
+    cols = np.array([5, 6, 7, 8, 9, 20, 21])
+
+    value = hyperbolic_stress(
+        D,
+        Y,
+        kappa=kappa,
+        pairs=(rows, cols),
+    )
+
+    assert np.isfinite(value)
+    assert value < 1e-10
+
+def test_hydra_fixed_kappa_eigsh_basic():
+    rng = np.random.default_rng(21)
+
+    n = 60
+    d = 2
+    kappa = 2.5
+
+    directions = rng.normal(size=(n, d))
+    directions /= np.maximum(np.linalg.norm(directions, axis=1, keepdims=True), 1e-15)
+
+    radii = rng.uniform(0.05, 0.65, size=(n, 1))
+    Y = directions * radii
+
+    D = poincare_distance_matrix(Y, kappa=kappa)
+
+    Y_hat, X, lam_top, lam_bottom, A = hydra_fixed_kappa_eigsh(
+        D,
+        d=d,
+        kappa=kappa,
+    )
+
+    assert Y_hat.shape == (n, d)
+    assert X.shape == (n, d + 1)
+    assert A.shape == (n, n)
+    assert lam_bottom.shape == (d,)
+
+    assert np.all(np.isfinite(Y_hat))
+    assert np.all(np.isfinite(X))
+    assert np.isfinite(lam_top)
+    assert np.all(np.isfinite(lam_bottom))
+    assert np.all(np.isfinite(A))
+
+    assert np.all(np.linalg.norm(Y_hat, axis=1) < 1.0)
+
+    value = hyperbolic_stress(D, Y_hat, kappa=kappa)
+    assert np.isfinite(value)
+    assert value < 0.1
